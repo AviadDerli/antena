@@ -1,2 +1,4 @@
 *.docx
 antena.html
+node_modules/
+activists.csv

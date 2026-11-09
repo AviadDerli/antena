@@ -1,0 +1,13 @@
+{
+  "name": "kfar-adumim-antenna-campaign",
+  "version": "1.0.0",
+  "description": "אתר מאבק תושבי כפר אדומים להרחקת מגדל האנטנות",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
+

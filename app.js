@@ -177,7 +177,7 @@ function initFaqAccordion() {
 }
 
 /* --------------------------------------------------------------------------
-   5. Resident Petition System (LocalStorage & Live Counter)
+   5. Resident Petition System (CSV Backend + LocalStorage Fallback)
    -------------------------------------------------------------------------- */
 const INITIAL_SIGNERS_COUNT = 387;
 
@@ -195,7 +195,7 @@ function initPetitionSystem() {
   const counterDisplay = document.getElementById('signers-counter');
   const signersListContainer = document.getElementById('signers-tags');
 
-  // Load from LocalStorage
+  // Load from LocalStorage as initial state / fallback
   let storedCount = parseInt(localStorage.getItem('kfar_adumim_signers_count'), 10);
   if (!storedCount || isNaN(storedCount)) {
     storedCount = INITIAL_SIGNERS_COUNT;
@@ -209,59 +209,98 @@ function initPetitionSystem() {
     storedNames = [];
   }
 
-  // Combine default with user additions
-  const allNames = [...storedNames, ...DEFAULT_SIGNERS];
+  let allNames = [...storedNames, ...DEFAULT_SIGNERS];
 
   updateCounterUI(storedCount);
   renderSignersTags(allNames);
+
+  // Sync recent signers from the server CSV if available
+  fetch('/api/activists')
+    .then(res => (res.ok ? res.json() : null))
+    .then(data => {
+      if (data && Array.isArray(data.recentSigners)) {
+        const merged = [...new Set([...data.recentSigners, ...DEFAULT_SIGNERS])];
+        allNames = merged;
+        renderSignersTags(allNames);
+        if (typeof data.count === 'number') {
+          updateCounterUI(INITIAL_SIGNERS_COUNT + data.count);
+        }
+      }
+    })
+    .catch(() => {
+      // Fallback to localStorage if running without server
+    });
 
   // Check if user already submitted
   if (localStorage.getItem('kfar_adumim_has_signed')) {
     const submitBtn = document.getElementById('petition-submit-btn');
     if (submitBtn) {
-      submitBtn.textContent = '✓ חתמת על העצומה בהצלחה';
+      submitBtn.textContent = '✓ הצטרפת לרשימת הפעילים בהצלחה';
       submitBtn.classList.remove('btn-primary');
       submitBtn.style.background = '#16a34a';
+      submitBtn.style.color = '#fff';
       submitBtn.disabled = true;
     }
   }
 
   if (form) {
-    form.addEventListener('submit', (e) => {
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
 
       const fullName = document.getElementById('full-name').value.trim();
       const neighborhood = document.getElementById('neighborhood').value.trim();
       const phone = document.getElementById('phone-number').value.trim();
+      const volunteerCheck = document.getElementById('volunteer-check');
+      const volunteer = volunteerCheck ? volunteerCheck.checked : true;
 
       if (!fullName || !neighborhood) {
         showToast('נא למלא שם מלא ושכונה/רחוב');
         return;
       }
 
-      // Increment count
+      const submitBtn = document.getElementById('petition-submit-btn');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'שומר פרטים...';
+      }
+
+      try {
+        const response = await fetch('/api/activists', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fullName, neighborhood, phone, volunteer })
+        });
+
+        if (!response.ok) {
+          throw new Error('Server returned error');
+        }
+      } catch (err) {
+        console.warn('Could not reach /api/activists, saving locally only:', err);
+      }
+
+      // Increment count & save locally as well
       storedCount += 1;
       localStorage.setItem('kfar_adumim_signers_count', storedCount);
 
-      // Save user entry
       const signerText = `${fullName} (${neighborhood})`;
       storedNames.unshift(signerText);
       localStorage.setItem('kfar_adumim_signers_list', JSON.stringify(storedNames));
       localStorage.setItem('kfar_adumim_has_signed', 'true');
 
       // Update UI
+      allNames = [signerText, ...allNames.filter(n => n !== signerText)];
       updateCounterUI(storedCount);
-      renderSignersTags([signerText, ...allNames]);
+      renderSignersTags(allNames);
 
       // Feedback
-      showToast('🎉 תודה רבה! חתימתך צורפה למאבק');
+      showToast('🎉 תודה רבה! פרטיך נשמרו ברשימת הפעילים');
       form.reset();
 
-      const submitBtn = document.getElementById('petition-submit-btn');
       if (submitBtn) {
-        submitBtn.textContent = '✓ חתימתך נקלטה! תודה על ההתגייסות';
+        submitBtn.textContent = '✓ פרטיך נקלטו! תודה על ההתגייסות';
         submitBtn.classList.remove('btn-primary');
         submitBtn.style.background = '#16a34a';
+        submitBtn.style.color = '#fff';
         submitBtn.disabled = true;
       }
     });
